@@ -1,6 +1,5 @@
 ########################################
 # Project 3: Main.py
-# The CoAP server, and Raspberry Pi functionings.
 # Grace Nguyen & Mason Lane
 ########################################
 import RPi.GPIO as GPIO
@@ -39,7 +38,7 @@ def timer (t):
     while True:
         now = time.time ()
 
-        #print( f'Time Left: {TIME - (now - start_time)}')   
+        print( f'Time Left: {TIME - (now - start_time)}')   
                         
         if (now - start_time) >= t:
             TimeUpEvent.set ()
@@ -71,10 +70,14 @@ def forceSensor ():
                         
                         
             prev_input = input
-            #print(input)
                     
+            # The force sensor is put to sleep ONLY if the object thrown at
+            # it will have prolonged contact with it (without sleeping, the force sensor
+            # would register mulitple touches per touch). 
+            # Else, if the force sensor does not have prolonged contact with the thrown 
+            # object, and the object thrown may have lesser force, do not time.sleep.
+            #time.sleep (0.01)      
             
-            time.sleep (0.01)
         print( f'~Time Up!~')
     except KeyboardInterrupt:
         pass
@@ -160,23 +163,15 @@ class CoAPServer(CoAP):
 
 ### DRIVER CODE.
 def main ():
-    print ('1')
-    #forceSensor ()
-    print ('2')
     server = CoAPServer('0.0.0.0', PORT)
-    print ('3')
         
     try:
-        print ('4')
         server.listen (10)
-        print ('5')
     except KeyboardInterrupt:
         print ('Server Shutdown')
         server.close()
         print ('Exiting...')
-    finally: 
-        GPIO.cleanup ()
-
+        
 
 ### GUARD.
 if __name__ == '__main__':
