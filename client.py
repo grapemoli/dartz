@@ -13,12 +13,12 @@ client = HelperClient(server=(host, port))
 
 # Driver code.
 def main():
-    game = input("Start Game? (Y/N)")
+    game = input("Start Game? (Y/N) ")
 
     while game.lower() != 'n':
 
         if game.lower() == 'y':
-            print('Start--')
+            print('\nStart--')
             client.delete(pathGame)
             client.put(pathGame, '1')   # Starts game.
 
