@@ -1,7 +1,9 @@
 ########################################
-# Project 3: Main.py
+# Project 3: Main.py, also the Server for CoAP
 # Grace Nguyen & Mason Lane
 ########################################
+from gpiozero import Buzzer
+from  gpiozero import DistanceSensor
 import RPi.GPIO as GPIO
 import time
 import threading
@@ -13,10 +15,16 @@ from coapthon.resources.resource import Resource
 ### VARIABLES
 # GPIO Pins. Change as needed.
 GPIO_FORCE = 21
+GPIO_BUZZER = 20
+GPIO_US_ECHO = 16
+GPIO_US_TRIGGER = 12
 
 # CoAP Server Variables. Change as needed.
 # Change these as needed.
 PORT = 1234
+
+# Sensors / Actuators.
+buzzer = Buzzer (GPIO_BUZZER)
 
 # Variables for game state.
 score = 0                       # Resets every game.
@@ -25,11 +33,12 @@ TIME = 15
 
 # Thread Events.
 TimeUpEvent = threading.Event ()
+SongEndEvent = threading.Event ()
 
 
 
 ### THREAD FUNCTIONS (these functions only run in seperate threads)
-# Timer that returns true when pass-args seconds has elapsed.
+# Timer that returns true when passed-args seconds has elapsed.
 # Note, it is up to the client to update the start time outside of this function.
 def timer (t):
     global start_time
@@ -38,15 +47,71 @@ def timer (t):
     while True:
         now = time.time ()
 
-        print( f'Time Left: {TIME - (now - start_time)}')   
+        #print( f'Time Left: {TIME - (now - start_time)}')   
                         
         if (now - start_time) >= t:
             TimeUpEvent.set ()
             break
+            
+# Threading for playing songs with the buzzer.
+def buzz (noteFreq, duration):
+    halveWaveTime = 1 / (noteFreq * 2)
+    waves = int (duration * noteFreq)
+    
+    for i in range (waves):
+        GPIO.output (GPIO_BUZZER, True)
+        time.sleep (halveWaveTime)
+        GPIO.output (GPIO_BUZZER, False)
+        time.sleep (halveWaveTime)
+
+
+def playBegin ():
+    try:
+        GPIO.setmode (GPIO.BCM)
+        GPIO.setup (GPIO_BUZZER, GPIO.OUT)
+        t = 0
+        notes =  [220, 220, 220, 440]  
+        duration = [0.9, 0.9, 0.9, 1]
+        
+        for n in notes: 
+            buzz (n, duration[t])
+            time.sleep (duration[t] * 0.1)
+            t += 1
+            
+            if n == 440:
+                SongEndEvent.set ()
+    except:
+        pass
+        
+
+def playEnd ():
+    try:
+        GPIO.setmode (GPIO.BCM)
+        GPIO.setup (GPIO_BUZZER, GPIO.OUT)
+        t = 0
+        notes =  [880, 698.5, 523.3, 880, 659.3, 784]    # Super Mario World Ending
+        duration = [0.5, 0.25, 0.25, 0.5, 0.5, 1]
+        
+        for n in notes: 
+            buzz (n, duration[t])
+            time.sleep (duration[t] * 0.1)
+            t += 1
+    finally:
+        SongEndEvent.set ()
 
     
     
 ### FUNCTIONS
+# Read the distance sensor, sending the distance read. 
+def distanceSensor ():
+    global GPIO_US_ECHO
+    global GPIO_US_TRIGGER
+    ultrasonic = DistanceSensor (echo=GPIO_US_ECHO, trigger=GPIO_US_TRIGGER, max_distance=4)
+    
+    return ultrasonic.distance
+
+
+
 # Digital reading of the Force Sensor (on/off).
 def forceSensor ():
     global score
@@ -81,8 +146,6 @@ def forceSensor ():
         print( f'~Time Up!~')
     except KeyboardInterrupt:
         pass
-    finally:
-        GPIO.cleanup ()
 
 
 
@@ -107,22 +170,41 @@ class ScoreResource (Resource):
         return self
 
 
+class DistanceResource (Resource):
+    def __init__ (self, name='DistanceResource', coap_server=None):
+        super (DistanceResource, self).__init__(name, coap_server, visible=True, observable=True, allow_children=True)
+        self.payload = '0'          # A reading from the distance sensor.
+    
+    def render_GET (self, request):
+        # Returns one distance sensor reading.
+        self.payload = str (distanceSensor ())
+        return self    
+        
+    def render_PUT (self, request):
+        # Sets distance to throw.
+        global distance
+        distance = float(request.payload)
+        return self
+
+
+
 class GameResource (Resource):
     def __init__ (self, name='GameResource', coap_server=None):
         super (GameResource, self).__init__(name, coap_server, visible=True, observable=True, allow_children=True)
-        self.payload = '0'     # True if the game is started, False if not started.
-        
+        self.payload = '0'          # Distance configured by the user for the game. 0 if the game is not started.
         
     def render_GET (self, request):
         return self   
         
     def render_PUT (self, request):
-        # Sets the game status to whatever the payload is. If True / 
-        # game is on, start the force sensor, etc.
-        # This PUT request is made to start the game, so the payload should be 1.
+        # Sets the distance to whatever the payload is, with 0 being to not start the game, and
+        # greater values being the distance to throw at.
+        # This PUT request is made to start the game, so the payload should be greater than 0.
         self.payload = request.payload
         
-        if (self.payload == '1'):
+        if (self.payload != '0'):
+            # Play beginning countdown.
+            playBegin ()
             
             # Create thread for timer, and start game.
             global start_time
@@ -132,6 +214,10 @@ class GameResource (Resource):
             forceSensor ()
             
             if TimeUpEvent.is_set ():
+                # Create a thread for the buzzer to play the ending song, so that
+                # we can send the payload as the song plays.
+                BuzzerPlayThread = threading.Thread (target=playEnd)
+                BuzzerPlayThread.start ()
                 self.payload == '0'
                               
         
@@ -147,6 +233,15 @@ class GameResource (Resource):
         global prev_input
         prev_input = 0
         self.payload =  '0' 
+        
+        # When it comes to clearing the Buzzer/Song event, it is wholly possible
+        # that that thread is still playing a song while this request is called;
+        # therefore, we wait for the event to be set before clearing the event.
+        # Since songs are no more than 5 seconds, we set the timeout to 5.
+        global SongEndEvent
+        SongEndEvent.wait (timeout=5)
+        SongEndEvent.clear ()
+        SongEndEvent = threading.Event ()
         return self
                 
 
@@ -156,6 +251,7 @@ class CoAPServer(CoAP):
         CoAP.__init__(self, (host, port))
         self.add_resource('score/', ScoreResource ())
         self.add_resource('game/', GameResource ())
+        self.add_resource('distance/', DistanceResource ())
 
 
 
@@ -171,6 +267,8 @@ def main ():
         print ('Server Shutdown')
         server.close()
         print ('Exiting...')
+    finally:
+        GPIO.cleanup ()
         
 
 ### GUARD.
