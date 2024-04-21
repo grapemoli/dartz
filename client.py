@@ -4,18 +4,28 @@
 ########################################
 from coapthon.client.helperclient import HelperClient
 import threading
+import sys
+from PyQt6.QtWidgets import *
 
 
-host = "192.168.1.210"                          # Raspberry Pi's IP.
+
+####################################
+# Global variables.
+####################################
+host = "192.168.1.210"                          # Raspberry Pi's IP, configure as needed.
 port = 1234                                     # Configure as needed.
-pathGame = "game"                               # Configure as needed.`
+pathGame = "game"
 pathScore = "score"
 pathDistance = "distance"
-client = HelperClient(server=(host, port))
-distance = "1"                                  # Distance in meters.
+client = HelperClient (server= (host, port))
+distance = "1"                                  # Throwing distance in meters, configured by players.
 
+
+
+####################################
 # Threading functions.
-def getDistance():
+####################################
+def getDistance ():
     global distance
     currentDistance = client.get(pathDistance).payload
 
@@ -28,14 +38,26 @@ def getDistance():
 
 
 
-# Driver code.
-def main():
+####################################
+# Class: Client.
+# The GUI.
+####################################
+class Client (QMainWindow):
+    print ("hello world")
+
+
+
+####################################
+# Function: cli
+# The CLI showing of the game interface for the user.
+####################################
+def cli ():
     game = input("Start Game? (Y/N) ")
 
     while game.lower() != 'n':
 
         if game.lower() == 'y':
-            client.delete(pathGame)
+            client.delete (pathGame)
 
             # Get distance to throw at from 0.5 meters to 4 meters.
             global distance
@@ -49,12 +71,21 @@ def main():
 
             # Check that the user is far-enough away.
             distance = str(distance)
+            client.put(pathDistance, distance)
             currentDistance = client.get(pathDistance).payload
+            count = 0
 
-            while float(currentDistance) < float(distance):
-                # Deadlock until the user is far enough away.
+            # Deadlocks until the user is a good-enough distance away.
+            # The user must be at least the throwing distance away, and must be within 0.1m of it.
+            while count < 3:
                 print (f'Distance: {currentDistance} m')
                 currentDistance = client.get(pathDistance).payload
+
+                if float (distance) < float (currentDistance) <= float (distance) + 1:
+                    count += 1
+                else:
+                    count = 0
+
 
             print('\nStart--')
             client.put(pathGame, distance)   # Starts game.
@@ -67,6 +98,19 @@ def main():
         game = input ('Play again? (Y/N) ')
 
 
+
+####################################
+# Driver code.
+####################################
+def main ():
+    app = QApplication (sys.argv)
+
+    window = Client ()
+    window.start ()
+    window.show ()
+
+    sys.exit (app.exec ())
+
 if __name__ == '__main__':
-    main()
+    cli ()
 
