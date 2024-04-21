@@ -2,8 +2,7 @@
 # Project 3: Main.py, also the Server for CoAP
 # Grace Nguyen & Mason Lane
 ########################################
-from gpiozero import Buzzer
-from  gpiozero import DistanceSensor
+from gpiozero import Buzzer, DistanceSensor, RGBLED
 import RPi.GPIO as GPIO
 import time
 import threading
@@ -18,6 +17,9 @@ GPIO_FORCE = 21
 GPIO_BUZZER = 20
 GPIO_US_ECHO = 16
 GPIO_US_TRIGGER = 12
+GPIO_RED = 26
+GPIO_BLUE = 6
+GPIO_GREEN = 19
 
 # CoAP Server Variables. Change as needed.
 # Change these as needed.
@@ -25,11 +27,13 @@ PORT = 1234
 
 # Sensors / Actuators.
 buzzer = Buzzer (GPIO_BUZZER)
+LED = RGBLED (red=GPIO_RED, green=GPIO_GREEN, blue=GPIO_BLUE)
 
 # Variables for game state.
 score = 0                       # Resets every game.
 start_time = time.time ()       # Set before every game.
-TIME = 15                   
+TIME = 15  
+distance = 1                 
 
 # Thread Events.
 TimeUpEvent = threading.Event ()
@@ -53,6 +57,79 @@ def timer (t):
             TimeUpEvent.set ()
             break
             
+
+# Threading for playing RGB sequences. Encompanies the Buzzer jingles.
+def playBeginRGB ():
+    # Red.
+    LED.red = 1
+    LED.blue = 0
+    LED.green = 0
+    time.sleep (1)
+
+    # Orange.
+    LED.red = 1
+    LED.blue = 0
+    LED.green = 0.01
+    time.sleep (1)
+ 
+    # Yellow.
+    LED.red = 1
+    LED.blue = 0
+    LED.green = 0.1
+    time.sleep (1)
+
+    # Green.
+    LED.red = 0
+    LED.blue = 0
+    LED.green = 0.75
+    time.sleep (1.1)
+
+    # Off.
+    LED.color = (0, 0, 0) 
+       
+            
+def playEndRGB ():
+    # White.
+    LED.red = 1
+    LED.blue = 0.2
+    LED.green = 0.2
+    time.sleep (0.55)
+
+    # Pink.
+    LED.red = 1
+    LED.blue = 0.01
+    LED.green = 0.01
+    time.sleep (0.3)
+
+    # Red.
+    LED.red = 1
+    LED.blue = 0.1
+    LED.green = 0
+    time.sleep (0.35)
+
+    # Purple.
+    LED.red = 1
+    LED.blue = 0.5
+    LED.green = 0
+    time.sleep (0.6)
+
+    # Blue.
+    LED.red = 0.2
+    LED.blue = 0.75
+    LED.green = 0
+    time.sleep (0.6)
+
+    # Blue.
+    LED.red = 0
+    LED.blue = 1
+    LED.green = 0
+    time.sleep (1.1)
+
+    # Off.
+    LED.color = (0, 0, 0) 
+
+            
+                    
 # Threading for playing songs with the buzzer.
 def buzz (noteFreq, duration):
     halveWaveTime = 1 / (noteFreq * 2)
@@ -82,7 +159,7 @@ def playBegin ():
                 SongEndEvent.set ()
     except:
         pass
-        
+
 
 def playEnd ():
     try:
@@ -176,21 +253,49 @@ class DistanceResource (Resource):
         self.payload = '0'          # A reading from the distance sensor.
     
     def render_GET (self, request):
-        # Returns one distance sensor reading.
-        self.payload = str (distanceSensor ())
+        # Returns one distance sensor reading
+        reading = distanceSensor ()
+        self.payload = str (reading)
+        
+        # The user uses this when the game starts, so we adjust the RGB LED based on
+        # the distance the reading is from the throwing distance.
+        gb_value = 0.2
+        
+        # We change the green-blue value of the RGB based on the reading-distance away.
+        # The closer the reading is to the throwing distance, the closer the gb_value approaches 0.
+        
+        # The user is not far enough...
+        if reading < distance:
+            # We scale RGB light based on the reading-distance away.
+            gb_value = (distance - reading) / 4 * 0.2
+        
+        # The user is too far...
+        elif (reading - distance) > 0.1:             # 0.1 meter leeway.
+            gb_value = ((reading - distance) / 4) * 0.2
+        
+        # User is at the perfect distance away.
+        else:
+            gb_value = 0
+    
+        LED.red = 1
+        LED.blue = gb_value
+        LED.green = gb_value
+                       
         return self    
+        
+        
         
     def render_PUT (self, request):
         # Sets distance to throw.
         global distance
-        distance = float(request.payload)
+        distance = float (request.payload)
         return self
 
 
 
 class GameResource (Resource):
     def __init__ (self, name='GameResource', coap_server=None):
-        super (GameResource, self).__init__(name, coap_server, visible=True, observable=True, allow_children=True)
+        super (GameResource, self).__init__ (name, coap_server, visible=True, observable=True, allow_children=True)
         self.payload = '0'          # Distance configured by the user for the game. 0 if the game is not started.
         
     def render_GET (self, request):
@@ -204,6 +309,8 @@ class GameResource (Resource):
         
         if (self.payload != '0'):
             # Play beginning countdown.
+            RGBThread = threading.Thread (target=playBeginRGB)
+            RGBThread.start ()
             playBegin ()
             
             # Create thread for timer, and start game.
@@ -216,7 +323,9 @@ class GameResource (Resource):
             if TimeUpEvent.is_set ():
                 # Create a thread for the buzzer to play the ending song, so that
                 # we can send the payload as the song plays.
+                RGBThread = threading.Thread (target=playEndRGB)
                 BuzzerPlayThread = threading.Thread (target=playEnd)
+                RGBThread.start ()
                 BuzzerPlayThread.start ()
                 self.payload == '0'
                               
@@ -242,16 +351,22 @@ class GameResource (Resource):
         SongEndEvent.wait (timeout=5)
         SongEndEvent.clear ()
         SongEndEvent = threading.Event ()
+        
+        
+        # Turn off the lights.
+        LED.red = 0
+        LED.blue = 0
+        LED.green = 0
         return self
                 
 
 
-class CoAPServer(CoAP):
-    def __init__(self, host, port):
-        CoAP.__init__(self, (host, port))
-        self.add_resource('score/', ScoreResource ())
-        self.add_resource('game/', GameResource ())
-        self.add_resource('distance/', DistanceResource ())
+class CoAPServer (CoAP):
+    def __init__ (self, host, port):
+        CoAP.__init__ (self, (host, port))
+        self.add_resource ('score/', ScoreResource ())
+        self.add_resource ('game/', GameResource ())
+        self.add_resource ('distance/', DistanceResource ())
 
 
 
@@ -259,7 +374,7 @@ class CoAPServer(CoAP):
 
 ### DRIVER CODE.
 def main ():
-    server = CoAPServer('0.0.0.0', PORT)
+    server = CoAPServer ('0.0.0.0', PORT)
         
     try:
         server.listen (10)
