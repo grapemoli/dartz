@@ -5,6 +5,7 @@
 from coapthon.client.helperclient import HelperClient
 import threading
 import sys
+import time
 from PyQt6.QtWidgets import *
 from PyQt6.QtCore import QSize, Qt
 
@@ -55,6 +56,7 @@ class Client (QMainWindow):
         # Game State variables.
         self.players = 0
         self.distance = 1
+        self.currentPlayer = 0
 
         # Because we toggle through multiple windows, we use self.stack to hold
         # all the "windows," which will be further managed and toggled by display ().
@@ -63,19 +65,19 @@ class Client (QMainWindow):
         self.mainWindow.setLayout (self.stack)
         self.setCentralWidget (self.mainWindow)
 
-        # Display #1: Start Screen.
+        # DISPLAY#1: Start Screen.
         self.startScreenWidget = QWidget ()
         self.startScreenLayout = QVBoxLayout ()
         self.startScreenWidget.setLayout (self.startScreenLayout)
 
         # Title.
-        self.title = QLabel ("<font size='4'>Dartz 🎯</font>")
+        self.title = QLabel ("<font size='6'>Dartz 🎯</font>")
         self.title.setAlignment (Qt.AlignmentFlag.AlignCenter)
         self.startScreenLayout.addWidget (self.title)
 
         # Toggling the game settings: number of players.
         self.numberOfPlayersLayout = QHBoxLayout ()
-        self.numberOfPlayersLabel = QLabel ("Number of Players")
+        self.numberOfPlayersLabel = QLabel ("<font size='4'>Number of Players</font>")
         self.numberOfPlayersWidget = QSpinBox ()
         self.numberOfPlayersWidget.setMinimum (1)
         self.numberOfPlayersLayout.addWidget (self.numberOfPlayersLabel)
@@ -84,7 +86,7 @@ class Client (QMainWindow):
 
         # Toggling the game settings: throwing distance.
         self.throwingDistanceLayout = QHBoxLayout ()
-        self.throwingDistanceLabel = QLabel ("Throwing Distance")
+        self.throwingDistanceLabel = QLabel ("<font size='4'>Throwing Distance</font>")
         self.throwingDistanceWidget = QDoubleSpinBox ()
         self.throwingDistanceWidget.setRange (0.5, 4)
         self.throwingDistanceWidget.setSingleStep (0.5)
@@ -101,7 +103,97 @@ class Client (QMainWindow):
 
         self.stack.addWidget (self.startScreenWidget)
 
+        # DISPLAY#2: Lining the user to the right distance screen.
+        self.distanceScreenWidget = QWidget ()
+        self.distanceScreenLayout = QVBoxLayout ()
+        self.distanceScreenWidget.setLayout (self.distanceScreenLayout)
 
+        # Prompt the user to line up {x} meters away.
+        distancePrompt = QLabel (f"<font size='5'>Line Up To Start</font>")
+        distancePrompt.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.distanceScreenLayout.addWidget (distancePrompt)
+
+        # Show the user's current distance from the CoAP server.
+        distancePrompt = QLabel (f"<font size='4'>Current Distance: {100} meters</font>")
+        self.distanceScreenLayout.addWidget (distancePrompt)
+
+        # Generic Back button. Can be applied to any page.
+        self.backButton = QPushButton ("Back")
+        self.backButton.clicked.connect (self.backButton_clicked)
+        self.distanceScreenLayout.addWidget (self.backButton)
+
+        # TODO remove, this next button is for testing. Can be applied to any page.
+        self.nextButton = QPushButton ("Next")
+        self.nextButton.clicked.connect (self.nextButton_clicked)
+        self.distanceScreenLayout.addWidget (self.nextButton)
+
+        self.stack.addWidget (self.distanceScreenWidget)
+
+        # DISPLAY#3: Countdown Screen.
+        self.countdownScreenWidget = QWidget ()
+        self.countdownScreenLayout = QVBoxLayout ()
+        self.countdownScreenWidget.setLayout (self.countdownScreenLayout)
+
+        # Countdown label (dynamic).
+        self.countdownLabel = QLabel (f"<font size='7'>🚦 3 🚦</font>")
+        self.countdownLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.countdownScreenLayout.addWidget (self.countdownLabel)
+
+        # Generic Back button. Can be applied to any page.
+        self.backButton1 = QPushButton ("Back")
+        self.backButton1.clicked.connect (self.backButton_clicked)
+        self.countdownScreenLayout.addWidget (self.backButton1)
+
+        # TODO remove, this next button is for testing. Can be applied to any page.
+        self.nextButton1 = QPushButton ("Next")
+        self.nextButton1.clicked.connect (self.nextButton_clicked)
+        self.countdownScreenLayout.addWidget (self.nextButton1)
+
+        self.stack.addWidget (self.countdownScreenWidget)
+
+        # DISPLAY#4: Play / Timer Screen w/ Player# Header.
+
+        # DISPLAY#5: End Game / Next Player Screen.
+
+
+        # Final displays, setting ups.
+        self.display (0)
+
+
+    # Page / Window Handlers.
+    # Also takes care of state that is dependent on the current window.
+    def display (self, index):
+        # For switching between different UIs with only one window, we simply
+        # change to the UI's corresponding index in self.stack.
+
+        # Cleanse certain elements depending on the page we're at.
+        if index == 0:
+            # Start window.
+            self.players = 0
+            self.currentPlayer = 0
+            self.distance = 0.5
+            self.startButton.setText ("Start Game")
+            self.startButton.setEnabled (True)
+        elif index == 2:
+            # Coundown window. Countdown from 3 seconds down, changing
+            # the countdown text while doing so.
+            self.countdownLabel.setText  (f"<font size='7'>🚦 {3} 🚦</font>")
+
+            time.sleep (1)
+
+            self.countdownLabel.setText  (f"<font size='7'>🚦 {2} 🚦</font>")
+
+            time.sleep (1)
+
+            self.countdownLabel.setText  (f"<font size='7'>🚦 {1} 🚦</font>")
+
+            time.sleep (1)
+
+            self.countdownLabel.setText  (f"<font size='7'>🥳 Start Throwing! 🎯</font>")
+
+
+
+        self.stack.setCurrentIndex (index)
 
 
     # Event Handlers
@@ -114,10 +206,15 @@ class Client (QMainWindow):
         # Set the settings configured by the user.
         self.players = self.numberOfPlayersWidget.value ()
         self.distance = self.throwingDistanceWidget.value ()
-        print (self.players)
-        print (self.distance)
 
-        # Show the next layout.
+        # Show the next screen, the "Line Up" screen.
+        self.display (1)
+
+    def backButton_clicked (self):
+        self.display (self.stack.currentIndex() - 1)
+
+    def nextButton_clicked (self):
+        self.display (self.stack.currentIndex() + 1)
 
 
 
