@@ -7,7 +7,7 @@ import threading
 import sys
 import time
 from PyQt6.QtWidgets import *
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import *
 
 
 
@@ -54,9 +54,19 @@ class Client (QMainWindow):
         self.setMinimumSize (QSize (800, 600))
 
         # Game State variables.
-        self.players = 0
+        self.players = 1
         self.distance = 1
-        self.currentPlayer = 0
+        self.currentPlayer = 1
+        self.score = 0
+
+        # Timers for the game state.
+        self.startGameCountdownTimer = QTimer ()
+        self.startGameCountdownTimer.timeout.connect (self.startGameCountdown_update)
+        self.startGameCountdown = 3
+
+        self.inGameCountdownTimer = QTimer ()
+        self.inGameCountdownTimer.timeout.connect (self.gameCountdownTimer_update)
+        self.inGameCountdown = 15
 
         # Because we toggle through multiple windows, we use self.stack to hold
         # all the "windows," which will be further managed and toggled by display ().
@@ -109,13 +119,13 @@ class Client (QMainWindow):
         self.distanceScreenWidget.setLayout (self.distanceScreenLayout)
 
         # Prompt the user to line up {x} meters away.
-        distancePrompt = QLabel (f"<font size='5'>Line Up To Start</font>")
-        distancePrompt.setAlignment (Qt.AlignmentFlag.AlignCenter)
-        self.distanceScreenLayout.addWidget (distancePrompt)
+        self.distancePrompt = QLabel (f"<font size='5'>Player {self.currentPlayer},  Line Up To Start</font>")
+        self.distancePrompt.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.distanceScreenLayout.addWidget (self.distancePrompt)
 
         # Show the user's current distance from the CoAP server.
-        distancePrompt = QLabel (f"<font size='4'>Current Distance: {100} meters</font>")
-        self.distanceScreenLayout.addWidget (distancePrompt)
+        self.distanceLabel = QLabel (f"<font size='4'>Current Distance: {self.distance} meters</font>")
+        self.distanceScreenLayout.addWidget (self.distanceLabel)
 
         # Generic Back button. Can be applied to any page.
         self.backButton = QPushButton ("Back")
@@ -135,25 +145,47 @@ class Client (QMainWindow):
         self.countdownScreenWidget.setLayout (self.countdownScreenLayout)
 
         # Countdown label (dynamic).
-        self.countdownLabel = QLabel (f"<font size='7'>🚦 3 🚦</font>")
-        self.countdownLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
-        self.countdownScreenLayout.addWidget (self.countdownLabel)
-
-        # Generic Back button. Can be applied to any page.
-        self.backButton1 = QPushButton ("Back")
-        self.backButton1.clicked.connect (self.backButton_clicked)
-        self.countdownScreenLayout.addWidget (self.backButton1)
-
-        # TODO remove, this next button is for testing. Can be applied to any page.
-        self.nextButton1 = QPushButton ("Next")
-        self.nextButton1.clicked.connect (self.nextButton_clicked)
-        self.countdownScreenLayout.addWidget (self.nextButton1)
+        self.startGameCountdownLabel = QLabel (f"<font size='7'>🚦 3 🚦</font>")
+        self.startGameCountdownLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.countdownScreenLayout.addWidget (self.startGameCountdownLabel)
 
         self.stack.addWidget (self.countdownScreenWidget)
 
         # DISPLAY#4: Play / Timer Screen w/ Player# Header.
+        self.inGameCountdownWidget = QWidget ()
+        self.inGameCountdownLayout = QVBoxLayout ()
+        self.inGameCountdownWidget.setLayout (self.inGameCountdownLayout)
+
+        # Some label.
+        self.inGameLabel = QLabel (f"<font size='7'>✨Player {self.currentPlayer}, Keep Throwing until Time's Up! ✨</font>")
+        self.inGameLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.inGameCountdownLayout.addWidget (self.inGameLabel)
+
+        # Countdown label (dynamic).
+        self.inGameCountdownLabel = QLabel (f"<font size='7'>🚦 15 🚦</font>")
+        self.inGameCountdownLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.inGameCountdownLayout.addWidget (self.inGameCountdownLabel)
+
+        self.stack.addWidget (self.inGameCountdownWidget)
+
 
         # DISPLAY#5: End Game / Next Player Screen.
+        self.endGameWidget = QWidget ()
+        self.endGameLayout = QVBoxLayout ()
+        self.endGameWidget.setLayout (self.endGameLayout)
+
+        # Score label.
+        self.scoreLabel = QLabel (f"<font size='6'>Player {self.currentPlayer}'s Score: {self.score}</font>")
+        self.scoreLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.endGameLayout.addWidget (self.scoreLabel)
+
+        # Prompt the user to end the game (back to the menu).
+        self.endGameButton = QPushButton ("End Game")
+        self.endGameButton.clicked.connect (self.endGameButton_clicked)
+        self.endGameLayout.addWidget (self.endGameButton)
+
+        self.stack.addWidget (self.endGameWidget)
+
 
 
         # Final displays, setting ups.
@@ -169,34 +201,47 @@ class Client (QMainWindow):
         # Cleanse certain elements depending on the page we're at.
         if index == 0:
             # Start window.
-            self.players = 0
-            self.currentPlayer = 0
+            self.players = 1
+            self.currentPlayer = 1
             self.distance = 0.5
             self.startButton.setText ("Start Game")
             self.startButton.setEnabled (True)
+
+        elif index == 1:
+            self.distancePrompt.setText (f"<font size='5'>Player {self.currentPlayer},  Line Up To Start</font>")
+            self.distanceLabel = QLabel (f"<font size='4'>Current Distance: {self.distance} meters</font>")
+
+        # Hide the back button if it's not the first player.
+            if self.currentPlayer != 1:
+                self.backButton.hide ()
+            else:
+                self.backButton.show ()
+
         elif index == 2:
-            # Coundown window. Countdown from 3 seconds down, changing
+            # Pre-Game Countdown window. Countdown from 3 seconds down, changing
             # the countdown text while doing so.
-            self.countdownLabel.setText  (f"<font size='7'>🚦 {3} 🚦</font>")
+            self.startGameCountdown = 3
+            self.startGameCountdownLabel.setText  (f"<font size='7'>🚦 {self.startGameCountdown} 🚦</font>")
+            self.startGameCountdownTimer.start (1000)
+        elif index == 3:
+            # In-Game Countdown window. Countdown from 15 seconds down, changing
+            # the countdown text while doing so.
+            self.inGameLabel.setText (f"<font size='7'>✨Player {self.currentPlayer}, Keep Throwing until Time's Up! ✨</font>")
+            self.inGameCountdown = 15
+            self.inGameCountdownLabel.setText (f"<font size='7'>🚦 15 🚦</font>")
+            self.inGameCountdownTimer.start (1000)
+        elif index == 4:
+            self.scoreLabel.setText (f"<font size='7'>Player {self.currentPlayer}'s Score: {self.score}</font>")
 
-            time.sleep (1)
-
-            self.countdownLabel.setText  (f"<font size='7'>🚦 {2} 🚦</font>")
-
-            time.sleep (1)
-
-            self.countdownLabel.setText  (f"<font size='7'>🚦 {1} 🚦</font>")
-
-            time.sleep (1)
-
-            self.countdownLabel.setText  (f"<font size='7'>🥳 Start Throwing! 🎯</font>")
-
-
+            if self.currentPlayer == self.players:
+                self.endGameButton.setText ('End Game')
+            else:
+                self.endGameButton.setText (f"Player {self.currentPlayer + 1}'s Turn")
 
         self.stack.setCurrentIndex (index)
 
 
-    # Event Handlers
+    # Event Handlers / Slots.
     def startButton_clicked (self):
         # We 'turn off' the button, as there is setup to the CoAP server that
         # mayy cause a lag time.
@@ -216,8 +261,35 @@ class Client (QMainWindow):
     def nextButton_clicked (self):
         self.display (self.stack.currentIndex() + 1)
 
+    def startGameCountdown_update (self):
+        # Change the pre-countdown label based on the time remaining.
+        self.startGameCountdown = self.startGameCountdown - 1
+
+        if self.startGameCountdown != 0:
+            self.startGameCountdownLabel.setText  (f"<font size='7'>🚦 {self.startGameCountdown} 🚦</font>")
+        else:
+            self.startGameCountdownLabel.setText  (f"<font size='7'>🥳 Start Throwing! 🎯</font>")
+            self.startGameCountdownTimer.stop ()
+            self.display (3)
 
 
+    def gameCountdownTimer_update (self):
+        self.inGameCountdown = self.inGameCountdown - 1
+
+        if self.inGameCountdown != 0:
+            self.inGameCountdownLabel.setText (f"<font size='7'>🚦 {self.inGameCountdown} 🚦</font>")
+        else:
+            self.inGameCountdownLabel.setText (f"<font size='7'>❌ Time is Up~ ❌</font>")
+            self.inGameCountdownTimer.stop ()
+            self.display (4)
+
+    def endGameButton_clicked (self):
+        # If the current player is the last player, then end the game.
+        if self.currentPlayer == self.players:
+            self.display (0)
+        else:
+            self.currentPlayer = self.currentPlayer + 1
+            self.display (1)
 
 
 ####################################
