@@ -1,4 +1,4 @@
-########################################
+ ########################################
 # Project 3: Client.py
 # Grace Nguyen & Mason Lane
 ########################################
@@ -324,6 +324,7 @@ class Client (QMainWindow):
         elif index == 4:
             # Save the score in the playerScores array.
             self.score = client.get (pathScore).payload
+            self.playerScores.append( int(self.score))
 
             self.winnerLabel.setText ('')
             self.endGameButton.setEnabled (True)
