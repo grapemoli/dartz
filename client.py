@@ -1,4 +1,4 @@
- ########################################
+########################################
 # Project 3: Client.py
 # Grace Nguyen & Mason Lane
 ########################################
@@ -74,6 +74,7 @@ class Client (QMainWindow):
         self.currentPlayer = 1
         self.playerScores = [0]
         self.score = 0
+        self.time = "15"                # Default time is 15 seconds. String because of CoAP payload.
         self.currentDistance = "-"
         self.count = 3                  # Makes sure the user is at the throwing distance for 3 readings.
 
@@ -94,7 +95,7 @@ class Client (QMainWindow):
 
         self.inGameCountdownTimer = QTimer ()
         self.inGameCountdownTimer.timeout.connect (self.gameCountdownTimer_update)
-        self.inGameCountdown = 15
+        self.inGameCountdown = int (self.time)
 
         # Because we toggle through multiple windows, we use self.stack to hold
         # all the "windows," which will be further managed and toggled by display ().
@@ -132,6 +133,17 @@ class Client (QMainWindow):
         self.throwingDistanceLayout.addWidget (self.throwingDistanceLabel)
         self.throwingDistanceLayout.addWidget (self.throwingDistanceWidget)
         self.startScreenLayout.addLayout (self.throwingDistanceLayout)
+
+        # Toggling the game settings: time of throwing.
+        self.throwingTimeLayout = QHBoxLayout ()
+        self.throwingTimeLabel = QLabel ("<font size='4'>Throwing Time</font>")
+        self.throwingTimeWidget = QSpinBox ()
+        self.throwingTimeWidget.setMinimum (5)
+        self.throwingTimeWidget.setSingleStep (5)
+        self.throwingTimeWidget.setSuffix (" s")
+        self.throwingTimeLayout.addWidget (self.throwingTimeLabel)
+        self.throwingTimeLayout.addWidget (self.throwingTimeWidget)
+        self.startScreenLayout.addLayout (self.throwingTimeLayout)
 
         # Start game button.
         self.startButton = QPushButton ("Start Game")
@@ -256,7 +268,7 @@ class Client (QMainWindow):
         global score
 
         # Start the game by calling on the CoAP server to start the game.
-        client.put (pathGame, self.distance)
+        client.put (pathGame, self.time)
 
 
 
@@ -269,6 +281,8 @@ class Client (QMainWindow):
         # Cleanse certain elements depending on the page we're at.
         if index == 0:
             # Start window.
+            self.time = "15"
+            self.inGameCountdown = int (self.time)
             self.playerScores = [0]
             self.players = 1
             self.currentPlayer = 1
@@ -312,10 +326,9 @@ class Client (QMainWindow):
         elif index == 3:
             # In-Game Countdown window. Countdown from 15 seconds down, changing
             # the countdown text while doing so.
-
+            self.inGameCountdown = int (self.time)
             self.inGameLabel.setText (f"<font size='7'>✨Player {self.currentPlayer} Is Throwing! ✨</font>")
-            self.inGameCountdown = 15
-            self.inGameCountdownLabel.setText (f"<font size='7'>🚦 15 🚦</font>")
+            self.inGameCountdownLabel.setText (f"<font size='7'>🚦 {self.inGameCountdown} 🚦</font>")
 
             self.inGameCountdownTimer.start (1000)
 
@@ -356,6 +369,8 @@ class Client (QMainWindow):
         # Set the settings configured by the user.
         self.players = self.numberOfPlayersWidget.value ()
         self.distance = str (self.throwingDistanceWidget.value ())
+        self.time = str (self.throwingTimeWidget.value ())
+        self.inGameCountdown = int(self.time)
 
         # This may take a little time, particularly the former...
         ClientThread = threading.Thread (target=self.setGame)
