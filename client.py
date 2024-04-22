@@ -21,7 +21,7 @@ pathScore = "score"
 pathDistance = "distance"
 client = HelperClient (server= (host, port))
 distance = "1"                                  # Throwing distance in meters, configured by players.
-
+count = 3                                       # The user must be at the throwing distance for 3 readings to start.
 
 
 ####################################
@@ -39,6 +39,21 @@ def getDistance ():
         print(f'Current Distance: {currentDistance}')
 
 
+####################################
+# Class: Worker
+# Used to let the GUI update while a thread runs in the background.
+####################################
+class Worker (QObject):
+    finished = pyqtSignal ()
+
+    def run (self):
+        global count
+
+        while count != 0:
+            pass
+
+        self.finished.emit ()
+
 
 ####################################
 # Class: Client.
@@ -55,9 +70,22 @@ class Client (QMainWindow):
 
         # Game State variables.
         self.players = 1
-        self.distance = 1
+        self.distance = "1"             # The distance is a string because of CoAP payload.
         self.currentPlayer = 1
+        self.playerScores = [0]
         self.score = 0
+        self.currentDistance = "-"
+        self.count = 3                  # Makes sure the user is at the throwing distance for 3 readings.
+
+        # Thread Events.
+        self.GameSetEvent = threading.Event ()
+
+        self.worker = Worker()
+        self.thread = QThread()
+        self.worker.moveToThread (self.thread)
+        self.thread.started.connect (self.worker.run)
+        self.worker.finished.connect (self.startGame)
+        self.worker.finished.connect (self.thread.quit)
 
         # Timers for the game state.
         self.startGameCountdownTimer = QTimer ()
@@ -124,18 +152,13 @@ class Client (QMainWindow):
         self.distanceScreenLayout.addWidget (self.distancePrompt)
 
         # Show the user's current distance from the CoAP server.
-        self.distanceLabel = QLabel (f"<font size='4'>Current Distance: {self.distance} meters</font>")
+        self.distanceLabel = QLabel (f"<font size='4'>Current Distance: - meters</font>")
         self.distanceScreenLayout.addWidget (self.distanceLabel)
 
         # Generic Back button. Can be applied to any page.
         self.backButton = QPushButton ("Back")
         self.backButton.clicked.connect (self.backButton_clicked)
         self.distanceScreenLayout.addWidget (self.backButton)
-
-        # TODO remove, this next button is for testing. Can be applied to any page.
-        self.nextButton = QPushButton ("Next")
-        self.nextButton.clicked.connect (self.nextButton_clicked)
-        self.distanceScreenLayout.addWidget (self.nextButton)
 
         self.stack.addWidget (self.distanceScreenWidget)
 
@@ -157,7 +180,7 @@ class Client (QMainWindow):
         self.inGameCountdownWidget.setLayout (self.inGameCountdownLayout)
 
         # Some label.
-        self.inGameLabel = QLabel (f"<font size='7'>✨Player {self.currentPlayer}, Keep Throwing until Time's Up! ✨</font>")
+        self.inGameLabel = QLabel (f"<font size='7'>✨Player {self.currentPlayer} Is Throwing! ✨</font>")
         self.inGameLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
         self.inGameCountdownLayout.addWidget (self.inGameLabel)
 
@@ -167,7 +190,6 @@ class Client (QMainWindow):
         self.inGameCountdownLayout.addWidget (self.inGameCountdownLabel)
 
         self.stack.addWidget (self.inGameCountdownWidget)
-
 
         # DISPLAY#5: End Game / Next Player Screen.
         self.endGameWidget = QWidget ()
@@ -179,17 +201,63 @@ class Client (QMainWindow):
         self.scoreLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
         self.endGameLayout.addWidget (self.scoreLabel)
 
+        # Winner label.
+        self.winnerLabel = QLabel (f"<font size='5'>You won!</font>")
+        self.winnerLabel.setAlignment (Qt.AlignmentFlag.AlignCenter)
+        self.endGameLayout.addWidget (self.winnerLabel)
+
         # Prompt the user to end the game (back to the menu).
         self.endGameButton = QPushButton ("End Game")
+        self.endGameButton.setCheckable (True)
         self.endGameButton.clicked.connect (self.endGameButton_clicked)
         self.endGameLayout.addWidget (self.endGameButton)
 
         self.stack.addWidget (self.endGameWidget)
 
-
-
         # Final displays, setting ups.
         self.display (0)
+
+
+    # Threading Functions.
+    def setGame (self):
+        global client
+        global pathDistance
+        global pathGame
+
+        client.delete (pathGame)
+        client.put (pathDistance, self.distance)
+
+        self.GameSetEvent.set ()
+
+    def getDistance (self):
+        global client
+        global pathDistance
+        global count
+
+        self.currentDistance = client.get(pathDistance).payload
+
+        # Deadlocks until the user is a good-enough distance away.
+        # The user must be at least the throwing distance away, and must be within 0.1m of it.
+        while count > 0:
+            self.distanceLabel.setText (f"<font size='4'>Current Distance: {self.currentDistance} meters</font>")
+
+            if float (self.distance) < float (self.currentDistance) <= float (self.distance) + 0.1:
+                count = count - 1
+            else:
+                count = 3
+
+            self.currentDistance = client.get (pathDistance).payload
+
+
+    def game (self):
+        global client
+        global pathGame
+        global pathScore
+        global score
+
+        # Start the game by calling on the CoAP server to start the game.
+        client.put (pathGame, self.distance)
+
 
 
     # Page / Window Handlers.
@@ -201,59 +269,103 @@ class Client (QMainWindow):
         # Cleanse certain elements depending on the page we're at.
         if index == 0:
             # Start window.
+            self.playerScores = [0]
             self.players = 1
             self.currentPlayer = 1
             self.distance = 0.5
             self.startButton.setText ("Start Game")
             self.startButton.setEnabled (True)
 
-        elif index == 1:
-            self.distancePrompt.setText (f"<font size='5'>Player {self.currentPlayer},  Line Up To Start</font>")
-            self.distanceLabel = QLabel (f"<font size='4'>Current Distance: {self.distance} meters</font>")
+            self.stack.setCurrentIndex (index)
 
-        # Hide the back button if it's not the first player.
+        elif index == 1:
+            global count
+            count = 3
+            self.GameSetEvent.clear ()
+            self.currentDistance = "-"
+            self.distancePrompt.setText (f"<font size='5'>Player {self.currentPlayer},  Line Up To Start</font>")
+            self.distanceLabel.setText (f"<font size='4'>Current Distance: {self.currentDistance} meters</font>")
+
+            # Hide the back button if it's not the first player.
             if self.currentPlayer != 1:
                 self.backButton.hide ()
             else:
                 self.backButton.show ()
 
+            self.stack.setCurrentIndex (index)
+
+            # Thread to read the user's distance.
+            DistanceThread = threading.Thread (target=self.getDistance)
+            DistanceThread.start ()
+
+            self.thread.start ()
+
         elif index == 2:
             # Pre-Game Countdown window. Countdown from 3 seconds down, changing
             # the countdown text while doing so.
             self.startGameCountdown = 3
-            self.startGameCountdownLabel.setText  (f"<font size='7'>🚦 {self.startGameCountdown} 🚦</font>")
+            self.startGameCountdownLabel.setText  (f"<font size='7'>🥳 Throwing in {self.startGameCountdown} 🎯</font>")
             self.startGameCountdownTimer.start (1000)
+
+            self.stack.setCurrentIndex (index)
+
         elif index == 3:
             # In-Game Countdown window. Countdown from 15 seconds down, changing
             # the countdown text while doing so.
-            self.inGameLabel.setText (f"<font size='7'>✨Player {self.currentPlayer}, Keep Throwing until Time's Up! ✨</font>")
+
+            self.inGameLabel.setText (f"<font size='7'>✨Player {self.currentPlayer} Is Throwing! ✨</font>")
             self.inGameCountdown = 15
             self.inGameCountdownLabel.setText (f"<font size='7'>🚦 15 🚦</font>")
+
             self.inGameCountdownTimer.start (1000)
+
+            self.stack.setCurrentIndex (index)
+
         elif index == 4:
+            # Save the score in the playerScores array.
+            self.score = client.get (pathScore).payload
+
+            self.winnerLabel.setText ('')
+            self.endGameButton.setEnabled (True)
+            self.GameSetEvent.clear ()
             self.scoreLabel.setText (f"<font size='7'>Player {self.currentPlayer}'s Score: {self.score}</font>")
 
             if self.currentPlayer == self.players:
                 self.endGameButton.setText ('End Game')
+
+                # Print the winner if there are multiple players playing.
+                if self.players > 1:
+                    winner = self.playerScores.index (max( self.playerScores))
+                    self.winnerLabel.setText (f"<font size='5'>Player {winner} Won!</font>")
             else:
                 self.endGameButton.setText (f"Player {self.currentPlayer + 1}'s Turn")
 
-        self.stack.setCurrentIndex (index)
+            self.stack.setCurrentIndex (index)
+        else:
+            self.stack.setCurrentIndex (index)
 
 
     # Event Handlers / Slots.
     def startButton_clicked (self):
         # We 'turn off' the button, as there is setup to the CoAP server that
-        # mayy cause a lag time.
+        # may cause a lag time.
         self.startButton.setText ("Starting game...")
         self.startButton.setEnabled (False)
 
         # Set the settings configured by the user.
         self.players = self.numberOfPlayersWidget.value ()
-        self.distance = self.throwingDistanceWidget.value ()
+        self.distance = str (self.throwingDistanceWidget.value ())
+
+        # This may take a little time, particularly the former...
+        ClientThread = threading.Thread (target=self.setGame)
+        ClientThread.start ()
+
+        self.GameSetEvent.wait (timeout=5)
 
         # Show the next screen, the "Line Up" screen.
-        self.display (1)
+        if self.GameSetEvent.is_set():
+            self.display (1)
+
 
     def backButton_clicked (self):
         self.display (self.stack.currentIndex() - 1)
@@ -264,12 +376,11 @@ class Client (QMainWindow):
     def startGameCountdown_update (self):
         # Change the pre-countdown label based on the time remaining.
         self.startGameCountdown = self.startGameCountdown - 1
+        self.startGameCountdownLabel.setText  (f"<font size='7'>🥳 Throwing in {self.startGameCountdown} 🎯</font>")
 
-        if self.startGameCountdown != 0:
-            self.startGameCountdownLabel.setText  (f"<font size='7'>🚦 {self.startGameCountdown} 🚦</font>")
-        else:
-            self.startGameCountdownLabel.setText  (f"<font size='7'>🥳 Start Throwing! 🎯</font>")
+        if self.startGameCountdown == 0:
             self.startGameCountdownTimer.stop ()
+            time.sleep (1)
             self.display (3)
 
 
@@ -283,13 +394,33 @@ class Client (QMainWindow):
             self.inGameCountdownTimer.stop ()
             self.display (4)
 
+
     def endGameButton_clicked (self):
         # If the current player is the last player, then end the game.
         if self.currentPlayer == self.players:
             self.display (0)
         else:
+            # More players to come.
             self.currentPlayer = self.currentPlayer + 1
-            self.display (1)
+            self.endGameButton.setEnabled (False)
+
+            # Reset the game state, THEN allow the next player to start
+            # playing.
+            ResetGameThread = threading.Thread (target=self.setGame)
+            ResetGameThread.start ()
+            self.GameSetEvent.wait (timeout=5)
+
+            if self.GameSetEvent.is_set ():
+                self.display (1)
+
+    def startGame (self):
+        # Starting the game consists of (1) changing the display, and (2) calling the
+        # CoAP server to start the game.
+        self.display (2)
+
+        GameThread = threading.Thread (target=self.game)
+        GameThread.start ()
+
 
 
 ####################################
@@ -328,7 +459,7 @@ def cli ():
                 print (f'Distance: {currentDistance} m')
                 currentDistance = client.get(pathDistance).payload
 
-                if float (distance) < float (currentDistance) <= float (distance) + 1:
+                if float (distance) < float (currentDistance) <= float (distance) + 0.1:
                     count += 1
                 else:
                     count = 0
