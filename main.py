@@ -32,7 +32,7 @@ LED = RGBLED (red=GPIO_RED, green=GPIO_GREEN, blue=GPIO_BLUE)
 # Variables for game state.
 score = 0                       # Resets every game.
 start_time = time.time ()       # Set before every game.
-TIME = 15  
+TIME = 15                       # Configurable by the user.
 distance = 1                 
 
 # Thread Events.
@@ -298,7 +298,8 @@ class DistanceResource (Resource):
 class GameResource (Resource):
     def __init__ (self, name='GameResource', coap_server=None):
         super (GameResource, self).__init__ (name, coap_server, visible=True, observable=True, allow_children=True)
-        self.payload = '0'          # Distance configured by the user for the game. 0 if the game is not started.
+        global TIME
+        self.payload = TIME          # Throwing time configured by the user, 0 if the game is not started.
         
         
     def render_GET (self, request):
@@ -306,12 +307,12 @@ class GameResource (Resource):
         
         
     def render_PUT (self, request):
-        # Sets the distance to whatever the payload is, with 0 being to not start the game, and
-        # greater values being the distance to throw at.
         # This PUT request is made to start the game, so the payload should be greater than 0.
-        self.payload = request.payload
+        global TIME
+        TIME = int (request.payload)
+        self.payload = int (request.payload)
         
-        if (self.payload != '0'):
+        if (self.payload != 0):
             # Play beginning countdown.
             RGBThread = threading.Thread (target=playBeginRGB)
             RGBThread.start ()
