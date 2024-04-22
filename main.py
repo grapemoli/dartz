@@ -155,6 +155,8 @@ def playBegin ():
             time.sleep (duration[t] * 0.1)
             t += 1
             
+            # The beeps are 3-2-1-go, with the final go beep being
+            # when the user can start hitting the board.
             if n == 440:
                 SongEndEvent.set ()
     except:
@@ -186,7 +188,6 @@ def distanceSensor ():
     ultrasonic = DistanceSensor (echo=GPIO_US_ECHO, trigger=GPIO_US_TRIGGER, max_distance=4)
     
     return ultrasonic.distance
-
 
 
 # Digital reading of the Force Sensor (on/off).
@@ -239,6 +240,7 @@ class ScoreResource (Resource):
         self.payload = f'{score}'
         return self    
         
+        
     def render_DELETE (self, request):
         # Resets the score to 0.
         global score
@@ -251,6 +253,7 @@ class DistanceResource (Resource):
     def __init__ (self, name='DistanceResource', coap_server=None):
         super (DistanceResource, self).__init__(name, coap_server, visible=True, observable=True, allow_children=True)
         self.payload = '0'          # A reading from the distance sensor.
+    
     
     def render_GET (self, request):
         # Returns one distance sensor reading
@@ -284,7 +287,6 @@ class DistanceResource (Resource):
         return self    
         
         
-        
     def render_PUT (self, request):
         # Sets distance to throw.
         global distance
@@ -298,8 +300,10 @@ class GameResource (Resource):
         super (GameResource, self).__init__ (name, coap_server, visible=True, observable=True, allow_children=True)
         self.payload = '0'          # Distance configured by the user for the game. 0 if the game is not started.
         
+        
     def render_GET (self, request):
         return self   
+        
         
     def render_PUT (self, request):
         # Sets the distance to whatever the payload is, with 0 being to not start the game, and
@@ -311,26 +315,31 @@ class GameResource (Resource):
             # Play beginning countdown.
             RGBThread = threading.Thread (target=playBeginRGB)
             RGBThread.start ()
-            playBegin ()
             
-            # Create thread for timer, and start game.
-            global start_time
-            start_time = time.time ()
-            TimerThread = threading.Thread (target=timer, args= (TIME, ))
-            TimerThread.start ()
-            forceSensor ()
+            PlayBeginThread = threading.Thread (target=playBegin)
+            PlayBeginThread.start ()
+            SongEndEvent.wait (timeout=5)
             
-            if TimeUpEvent.is_set ():
-                # Create a thread for the buzzer to play the ending song, so that
-                # we can send the payload as the song plays.
-                RGBThread = threading.Thread (target=playEndRGB)
-                BuzzerPlayThread = threading.Thread (target=playEnd)
-                RGBThread.start ()
-                BuzzerPlayThread.start ()
-                self.payload == '0'
+            if SongEndEvent.is_set ():
+            
+                # Create thread for timer, and start game.
+                global start_time
+                start_time = time.time ()
+                TimerThread = threading.Thread (target=timer, args= (TIME, ))
+                TimerThread.start ()
+                forceSensor ()
+                
+                if TimeUpEvent.is_set ():
+                    # Create a thread for the buzzer to play the ending song, so that
+                    # we can send the payload as the song plays.
+                    RGBThread = threading.Thread (target=playEndRGB)
+                    BuzzerPlayThread = threading.Thread (target=playEnd)
+                    RGBThread.start ()
+                    BuzzerPlayThread.start ()
+                    self.payload == '0'
                               
-        
         return self
+        
         
     def render_DELETE (self, request):
         # Turns off game, resetting variables.
@@ -348,10 +357,9 @@ class GameResource (Resource):
         # therefore, we wait for the event to be set before clearing the event.
         # Since songs are no more than 5 seconds, we set the timeout to 5.
         global SongEndEvent
-        SongEndEvent.wait (timeout=5)
+        SongEndEvent.wait (timeout=2)
         SongEndEvent.clear ()
         SongEndEvent = threading.Event ()
-        
         
         # Turn off the lights.
         LED.red = 0
@@ -367,8 +375,6 @@ class CoAPServer (CoAP):
         self.add_resource ('score/', ScoreResource ())
         self.add_resource ('game/', GameResource ())
         self.add_resource ('distance/', DistanceResource ())
-
-
 
 
 
